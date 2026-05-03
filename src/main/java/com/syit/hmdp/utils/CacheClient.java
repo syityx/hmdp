@@ -35,11 +35,6 @@ public class CacheClient {
         this.redissonClient = redissonClient;
     }
 
-    public void set(String key, Object value, Long time, TimeUnit timeUnit) {
-        // 需要把对象序列化为str
-        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), time, timeUnit);
-    }
-
     public void setWithLogicalExpire(String key, Object value, Long time, TimeUnit timeUnit) {
         RedisData redisData = new RedisData();
         redisData.setData(value);
