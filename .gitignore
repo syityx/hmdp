@@ -33,3 +33,5 @@ build/
 .vscode/
 logs/hmdp.log
 src/main/resources/application.yaml
+logs/*
+src/main/resources/hmdp.sql
