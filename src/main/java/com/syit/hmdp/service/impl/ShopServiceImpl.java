@@ -66,7 +66,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         // ============= 不同方案解决缓存击穿： =============
         // synchronzied             reentrantlock               redisson分布式锁            逻辑过期
         // queryWithSynchronzied    queryWithReentrantLock      queryWithRedissonLock   queryWithLogicalExpire
-        Shop shop = cacheClient.queryWithRedissonLock(
+        Shop shop = cacheClient.queryWithLogicalExpire(
             CACHE_SHOP_KEY, id, Shop.class, 
             this::getById, 5L, TimeUnit.SECONDS
         );      // 时间设置为5s过期，方便观察缓存击穿

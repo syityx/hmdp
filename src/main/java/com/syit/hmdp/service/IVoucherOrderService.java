@@ -15,6 +15,8 @@ import com.syit.hmdp.entity.VoucherOrder;
 public interface IVoucherOrderService extends IService<VoucherOrder> {
 
     Result seckillVoucher(Long voucherId);
+    Result seckillVoucherWithDB(Long voucherId);
+    Result seckillVoucherWithCircuitBreaker(Long voucherId);
 
     void create(VoucherOrder voucherOrder);
 }

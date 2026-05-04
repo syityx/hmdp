@@ -18,6 +18,10 @@ public class RedisConstants {
     public static final String SECKILL_STOCK_KEY = "seckill:stock:";
     public static final String SECKILL_V2_STOCK_KEY = "seckill-v2:stock:";
     public static final String SECKILL_V2_ORDER_KEY = "seckill-v2:order:";
+    public static final String SECKILL_V2_ORDER_STATUS_KEY = "seckill-v2:order:status:";
+    public static final String SECKILL_V2_ORDER_RETRY_KEY = "seckill-v2:order:retry:";
+    public static final String SECKILL_V2_USER_KEY = "seckill-v2:user:";
+    public static final int SECKILL_MAX_ORDERS_PER_USER = 5;
     public static final String SECKILL_RATE_LIMIT_KEY = "seckill:rate-limit:";
     public static final Long SECKILL_RATE_LIMIT_WINDOW_MILLIS = 5000L;
     public static final Long SECKILL_RATE_LIMIT_MAX_REQUESTS = 5L;
