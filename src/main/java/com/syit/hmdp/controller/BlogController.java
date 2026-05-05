@@ -7,6 +7,7 @@ import com.syit.hmdp.dto.UserDTO;
 import com.syit.hmdp.entity.Blog;
 import com.syit.hmdp.entity.User;
 import com.syit.hmdp.service.IBlogService;
+import com.syit.hmdp.service.IVideoSummaryService;
 import com.syit.hmdp.service.IUserService;
 import com.syit.hmdp.utils.SystemConstants;
 import com.syit.hmdp.utils.UserHolder;
@@ -40,8 +41,10 @@ public class BlogController {
      * 3. 方便进行单元测试，可以通过构造器传入mock对象进行测试
      */
     private final IBlogService blogService;
-    public BlogController(IBlogService blogService) {
+    private final IVideoSummaryService videoSummaryService;
+    public BlogController(IBlogService blogService, IVideoSummaryService videoSummaryService) {
         this.blogService = blogService;
+        this.videoSummaryService = videoSummaryService;
     }
 //    ======================================
 
@@ -127,5 +130,10 @@ public class BlogController {
             @RequestParam("lastId") Long max,
             @RequestParam(value = "offset", defaultValue = "0") Integer offset) {
         return blogService.queryBlogOfFollow(max, offset);
+    }
+
+    @RequestMapping(value = "/summary/{id}", method = {RequestMethod.GET, RequestMethod.POST})
+    public Result summarizeBlog(@PathVariable Long id) {
+        return videoSummaryService.summarizeBlog(id);
     }
 }

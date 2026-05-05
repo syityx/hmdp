@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile *)",
+      "Bash(./mvnw compile *)",
+      "Bash(jar tf *)",
+      "Bash(javap -public -cp \"/c/Users/syit/.m2/repository/io/minio/minio/8.5.7/minio-8.5.7.jar\" io.minio.MinioClient)",
+      "Read(//c/Users/syit/.m2/repository/io/minio/minio/**)",
+      "Read(//c/Users/syit/.m2/repository/io/minio/**)"
+    ]
+  }
+}
