@@ -9,6 +9,7 @@ import com.syit.hmdp.entity.Shop;
 import com.syit.hmdp.mapper.ShopMapper;
 import com.syit.hmdp.service.IShopService;
 import com.syit.hmdp.utils.CacheClient;
+import com.syit.hmdp.utils.BloomFilterHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,8 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     StringRedisTemplate stringRedisTemplate;
     @Autowired
     CacheClient cacheClient;
+    @Autowired
+    BloomFilterHelper bloomFilterHelper;
 
     /**
      * 服务启动时预热 Shop 缓存到 Redis，配合 queryWithLogicalExpire 使用。
@@ -44,11 +47,24 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     public void preheatShopCache() {
         System.out.println("=== 开始预热店铺缓存 ===");
         List<Shop> shops = list();
+        int cached = 0, bloomed = 0;
         for (Shop shop : shops) {
-            cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + shop.getId(), shop,
-                    5L, TimeUnit.SECONDS);
+            try {
+                cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + shop.getId(), shop,
+                        5L, TimeUnit.SECONDS);
+                cached++;
+            } catch (Exception e) {
+                System.err.println("预热缓存失败 shop:" + shop.getId() + " — " + e.getMessage());
+            }
+            try {
+                bloomFilterHelper.add(BF_SHOP_KEY, String.valueOf(shop.getId()),
+                        BF_SHOP_EXPECTED, BF_SHOP_FPR);
+                bloomed++;
+            } catch (Exception e) {
+                System.err.println("布隆过滤器添加失败 shop:" + shop.getId() + " — " + e.getMessage());
+            }
         }
-        System.out.println("=== 店铺缓存预热完成，共 " + shops.size() + " 条 ===");
+        System.out.println("=== 店铺缓存预热完成，缓存 " + cached + " 条，布隆 " + bloomed + " 条 ===");
     }
 
     // 重点是解决 缓存击穿 和 缓存穿透
@@ -59,21 +75,29 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
         // ============= 使用缓存，不解决缓存击穿问题 =============
         // Shop shop = cacheClient.queryWithRedis(
-        //     CACHE_SHOP_KEY, id, Shop.class, 
+        //     CACHE_SHOP_KEY, id, Shop.class,
         //     this::getById, 5L, TimeUnit.SECONDS
         // );      // 只使用缓存,没有命中缓存就查询数据库,并将结果写入缓存,解决缓存穿透
 
         // ============= 不同方案解决缓存击穿： =============
         // synchronzied             reentrantlock               redisson分布式锁            逻辑过期
         // queryWithSynchronzied    queryWithReentrantLock      queryWithRedissonLock   queryWithLogicalExpire
+
+        // Bloom Filter 前置拦截：过滤器为空时跳过（防误删），否则不存在的 key 直接拒绝
+        if (!bloomFilterHelper.isEmpty(BF_SHOP_KEY, BF_SHOP_EXPECTED, BF_SHOP_FPR)
+                && !bloomFilterHelper.contains(BF_SHOP_KEY, String.valueOf(id),
+                BF_SHOP_EXPECTED, BF_SHOP_FPR)) {
+            return Result.fail("店铺不存在");
+        }
+
         Shop shop = cacheClient.queryWithLogicalExpire(
-            CACHE_SHOP_KEY, id, Shop.class, 
+            CACHE_SHOP_KEY, id, Shop.class,
             this::getById, 5L, TimeUnit.SECONDS
         );      // 时间设置为5s过期，方便观察缓存击穿
         // 注意：使用默认存在缓存预热，如果使用其他方案测试，需要手动删除缓存，否则会因为格式key中格式不同而出错
 
         if (shop == null) {
-            return Result.fail("店铺不存在");
+            return Result.fail("Redis:店铺不存在");
         }
 
         return Result.ok(shop);

@@ -31,4 +31,9 @@ public class RedisConstants {
     public static final String USER_SIGN_KEY = "sign:";
 
     public static final String Prefix = "syit_";
+
+    // Bloom filter Redis keys
+    public static final String BF_SHOP_KEY = "bf:shop";
+    public static final long BF_SHOP_EXPECTED = 10_000L;
+    public static final double BF_SHOP_FPR = 0.01;
 }

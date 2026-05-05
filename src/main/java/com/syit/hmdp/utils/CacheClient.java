@@ -10,6 +10,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -251,6 +253,7 @@ public class CacheClient {
      * 逻辑过期解决缓存击穿（Redisson 分布式锁版本）。
      * 数据永不过期（无Redis TTL），靠 RedisData.expireTime 判断是否过期。
      * 过期时抢到分布式锁的线程重建缓存，未抢到的返回旧数据。
+     * 若 key 意外被删除，回退到互斥锁模式重建缓存。
      */
     public <R, ID> R queryWithLogicalExpire(String prefix, ID id, Class<R> type, Function<ID, R> dbFallback,
                                              Long time, TimeUnit timeUnit) {
@@ -258,9 +261,39 @@ public class CacheClient {
 
         // 1. 从redis查询缓存数据
         String json = stringRedisTemplate.opsForValue().get(KEY);
-        // 2. 未命中（缓存从未预热），直接返回null
+
+        // 2. 缓存key不存在（可能被意外删除、Redis淘汰或未预热），回退到互斥锁重建
         if (StrUtil.isBlank(json)) {
-            return null;
+            String lockKey = LOCK_SHOP_KEY + id;
+            RLock lock = redissonClient.getLock(lockKey);
+            boolean gotLock = lock.tryLock();
+            if (gotLock) {
+                try {
+                    // 2.1 双重检查
+                    json = stringRedisTemplate.opsForValue().get(KEY);
+                    if (StrUtil.isNotBlank(json)) {
+                        RedisData redisData = JSONUtil.toBean(json, RedisData.class);
+                        return JSONUtil.toBean(JSONUtil.toJsonStr(redisData.getData()), type);
+                    }
+                    // 2.2 查库重建
+                    R newR = dbFallback.apply(id);
+                    if (newR == null) {
+                        stringRedisTemplate.opsForValue().set(KEY, "", time, timeUnit);
+                        return null;
+                    }
+                    this.setWithLogicalExpire(KEY, newR, time, timeUnit);
+                    return newR;
+                } finally {
+                    lock.unlock();
+                }
+            }
+            // 2.3 抢锁失败，休眠后递归重试
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return queryWithLogicalExpire(prefix, id, type, dbFallback, time, timeUnit);
         }
 
         // 3. 命中，解析RedisData
@@ -291,6 +324,8 @@ public class CacheClient {
                 R newR = dbFallback.apply(id);
                 if (newR != null) {
                     this.setWithLogicalExpire(KEY, newR, time, timeUnit);
+                } else {
+                    stringRedisTemplate.opsForValue().set(KEY, "", time, timeUnit);
                 }
                 return newR;
             } finally {
