@@ -29,5 +29,9 @@ public class BlogSummary implements Serializable {
 
     private String model;
 
+    private Integer status;
+
+    private String errorMsg;
+
     private LocalDateTime createdAt;
 }

@@ -1,8 +1,5 @@
 package com.syit.hmdp.service.impl;
 
-import cn.hutool.core.io.FileUtil;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.syit.hmdp.dto.Result;
 import com.syit.hmdp.entity.Blog;
@@ -10,22 +7,13 @@ import com.syit.hmdp.entity.BlogSummary;
 import com.syit.hmdp.entity.VideoFile;
 import com.syit.hmdp.mapper.BlogSummaryMapper;
 import com.syit.hmdp.mapper.VideoFileMapper;
-import com.syit.hmdp.service.IAsrService;
-import com.syit.hmdp.service.IAiService;
 import com.syit.hmdp.service.IBlogService;
 import com.syit.hmdp.service.IVideoSummaryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Slf4j
@@ -36,28 +24,25 @@ public class VideoSummaryServiceImpl implements IVideoSummaryService {
     private final IBlogService blogService;
     private final VideoFileMapper videoFileMapper;
     private final BlogSummaryMapper blogSummaryMapper;
-    private final IAsrService asrService;
-    private final IAiService aiService;
-    private final AmazonS3 amazonS3;
-
-    @Value("${minio.bucket}")
-    private String bucket;
-
-    @Value("${ffmpeg.path}")
-    private String ffmpegPath;
-
-    @Value("${spring.ai.openai.chat.options.model}")
-    private String aiModel;
+    private final SummaryProcessor summaryProcessor;
 
     @Override
-    public Result summarizeBlog(Long blogId) {
+    public Result startSummary(Long blogId) {
+        // 1. 查缓存
         BlogSummary existing = blogSummaryMapper.selectOne(
                 new LambdaQueryWrapper<BlogSummary>().eq(BlogSummary::getBlogId, blogId));
         if (existing != null) {
-            log.info("命中缓存, blogId={}", blogId);
-            return Result.ok(buildResult(existing));
+            if (existing.getStatus() != null && existing.getStatus() == 1) {
+                return Result.ok(Map.of("summary", existing.getSummary(), "status", "done"));
+            }
+            if (existing.getStatus() != null && existing.getStatus() == 0) {
+                return Result.ok(Map.of("status", "processing"));
+            }
+            // status == 2 失败，删掉重试
+            blogSummaryMapper.deleteById(existing.getId());
         }
 
+        // 2. 校验博客
         Blog blog = blogService.getById(blogId);
         if (blog == null) return Result.fail("博客不存在");
 
@@ -67,46 +52,31 @@ public class VideoSummaryServiceImpl implements IVideoSummaryService {
         VideoFile vf = videoFileMapper.selectById(videoId);
         if (vf == null) return Result.fail("视频不存在");
 
-        Path tempDir;
-        try {
-            tempDir = Files.createTempDirectory("video-summary-");
-        } catch (IOException e) {
-            throw new RuntimeException("创建临时目录失败", e);
+        // 3. 创建 pending 记录
+        BlogSummary bs = new BlogSummary();
+        bs.setBlogId(blogId);
+        bs.setStatus(0);
+        bs.setCreatedAt(LocalDateTime.now());
+        blogSummaryMapper.insert(bs);
+
+        // 4. 启动异步处理
+        summaryProcessor.process(blogId, videoId, blog.getTitle(), blog.getContent());
+
+        log.info("已启动异步总结, blogId={}", blogId);
+        return Result.ok(Map.of("status", "processing"));
+    }
+
+    @Override
+    public Result getSummary(Long blogId) {
+        BlogSummary bs = blogSummaryMapper.selectOne(
+                new LambdaQueryWrapper<BlogSummary>().eq(BlogSummary::getBlogId, blogId));
+        if (bs == null || (bs.getStatus() != null && bs.getStatus() == 2)) {
+            return Result.ok();
         }
-
-        try {
-            File videoFile = new File(tempDir.toFile(), "video.mp4");
-            log.info("下载视频, objectKey={}", vf.getObjectKey());
-            amazonS3.getObject(new GetObjectRequest(bucket, vf.getObjectKey()), videoFile);
-
-            File audioFile = new File(tempDir.toFile(), "audio.mp3");
-            extractAudio(videoFile, audioFile);
-
-            String transcript = asrService.transcribe(audioFile);
-
-            String prompt = buildPrompt(blog.getTitle(), blog.getContent(), transcript);
-
-            String summary = aiService.summarize(prompt);
-
-            BlogSummary bs = new BlogSummary();
-            bs.setBlogId(blogId);
-            bs.setTranscript(transcript);
-            bs.setSummary(summary);
-            bs.setModel(aiModel);
-            bs.setCreatedAt(LocalDateTime.now());
-            try {
-                blogSummaryMapper.insert(bs);
-                log.info("视频总结完成, blogId={}", blogId);
-                return Result.ok(buildResult(bs));
-            } catch (DuplicateKeyException e) {
-                log.info("并发写入冲突, 读取已有记录, blogId={}", blogId);
-                BlogSummary cached = blogSummaryMapper.selectOne(
-                        new LambdaQueryWrapper<BlogSummary>().eq(BlogSummary::getBlogId, blogId));
-                return Result.ok(buildResult(cached));
-            }
-        } finally {
-            FileUtil.del(tempDir.toFile());
+        if (bs.getStatus() == null || bs.getStatus() == 0) {
+            return Result.ok(Map.of("status", "processing"));
         }
+        return Result.ok(Map.of("summary", bs.getSummary(), "status", "done"));
     }
 
     private Long parseVideoId(String images) {
@@ -122,43 +92,5 @@ public class VideoSummaryServiceImpl implements IVideoSummaryService {
         } catch (NumberFormatException e) {
             return null;
         }
-    }
-
-    private void extractAudio(File videoFile, File audioFile) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    ffmpegPath, "-i", videoFile.getAbsolutePath(),
-                    "-vn", "-acodec", "libmp3lame", "-q:a", "2", "-y",
-                    audioFile.getAbsolutePath());
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-            int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                String err = new String(process.getInputStream().readAllBytes());
-                throw new RuntimeException("FFmpeg 提取音频失败: " + err);
-            }
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException("FFmpeg 提取音频失败", e);
-        }
-    }
-
-    private String buildPrompt(String title, String content, String transcript) {
-        return String.format(
-                "你是一个视频内容总结助手。请根据以下博客信息和视频语音转录文本，生成一段简洁的视频内容总结（200字以内）。\n\n" +
-                        "【博客标题】%s\n【博客正文】%s\n【视频语音转录】%s\n\n请生成总结：",
-                title != null ? title : "",
-                content != null ? content : "",
-                transcript != null ? transcript : "");
-    }
-
-    private Map<String, Object> buildResult(BlogSummary bs) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("id", bs.getId());
-        data.put("blogId", bs.getBlogId());
-        data.put("transcript", bs.getTranscript());
-        data.put("summary", bs.getSummary());
-        data.put("model", bs.getModel());
-        data.put("createdAt", bs.getCreatedAt());
-        return data;
     }
 }

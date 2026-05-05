@@ -6,7 +6,8 @@
       "Bash(jar tf *)",
       "Bash(javap -public -cp \"/c/Users/syit/.m2/repository/io/minio/minio/8.5.7/minio-8.5.7.jar\" io.minio.MinioClient)",
       "Read(//c/Users/syit/.m2/repository/io/minio/minio/**)",
-      "Read(//c/Users/syit/.m2/repository/io/minio/**)"
+      "Read(//c/Users/syit/.m2/repository/io/minio/**)",
+      "Bash(mysql -u syit -p020305 -h 127.0.0.1 hmdp -e \"ALTER TABLE tb_blog_summary ADD COLUMN status TINYINT DEFAULT 0 COMMENT '0=处理中 1=已完成 2=失败', ADD COLUMN error_msg VARCHAR\\(500\\) NULL COMMENT '错误信息';\")"
     ]
   }
 }

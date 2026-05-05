@@ -132,8 +132,13 @@ public class BlogController {
         return blogService.queryBlogOfFollow(max, offset);
     }
 
-    @RequestMapping(value = "/summary/{id}", method = {RequestMethod.GET, RequestMethod.POST})
-    public Result summarizeBlog(@PathVariable Long id) {
-        return videoSummaryService.summarizeBlog(id);
+    @PostMapping("/summary/{id}")
+    public Result startSummary(@PathVariable Long id) {
+        return videoSummaryService.startSummary(id);
+    }
+
+    @GetMapping("/summary/{id}")
+    public Result getSummary(@PathVariable Long id) {
+        return videoSummaryService.getSummary(id);
     }
 }

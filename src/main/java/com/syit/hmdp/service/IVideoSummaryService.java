@@ -4,5 +4,7 @@ import com.syit.hmdp.dto.Result;
 
 public interface IVideoSummaryService {
 
-    Result summarizeBlog(Long blogId);
+    Result startSummary(Long blogId);
+
+    Result getSummary(Long blogId);
 }
