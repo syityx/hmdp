@@ -9,7 +9,7 @@ import com.syit.hmdp.mq.VoucherOrderMessage;
 import com.syit.hmdp.service.ISeckillVoucherService;
 import com.syit.hmdp.service.IVoucherOrderService;
 import com.syit.hmdp.utils.MqConstants;
-import com.syit.hmdp.utils.RedisWorker;
+import com.syit.hmdp.utils.SnowflakeIdWorker;
 import com.syit.hmdp.utils.UserHolder;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.RateLimiter;
@@ -36,7 +36,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Autowired
     private ISeckillVoucherService seckillVoucherService;
     @Autowired
-    private RedisWorker redisWorker;
+    private SnowflakeIdWorker snowflakeIdWorker;
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
@@ -71,7 +71,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         Long userId = UserHolder.getUser().getId();
 
         // 1. Java 端预生成全局唯一 orderId
-        long orderId = redisWorker.nextID("order");
+        long orderId = snowflakeIdWorker.nextId();
 
         // 2. 执行 Lua 脚本：预扣库存 + 判重复 + 写 PENDING 占位
         Long result = stringRedisTemplate.execute(
@@ -220,7 +220,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足");
         }
         VoucherOrder voucherOrder = new VoucherOrder();
-        voucherOrder.setId(redisWorker.nextID("order"));
+        voucherOrder.setId(snowflakeIdWorker.nextId());
         voucherOrder.setUserId(userId);
         voucherOrder.setVoucherId(voucherId);
         voucherOrder.setStatus(1);

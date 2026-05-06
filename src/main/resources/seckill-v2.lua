@@ -1,7 +1,7 @@
 -- seckill-v2.lua
 -- ARGV[1]: voucherId
 -- ARGV[2]: userId
--- ARGV[3]: orderId (由 Java 端 RedisWorker 预生成)
+-- ARGV[3]: orderId (由 Java 端 SnowflakeIdWorker 预生成)
 -- ARGV[4]: maxOrders (每人每券最大购买数量)
 -- return: 0=success, 1=库存不足, 2=已达购买上限
 
